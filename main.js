@@ -26,10 +26,7 @@
   // GeoJSON source id for clustered points
   const SHOPS_SOURCE_ID = 'shops';
   
-  // ▼▼ ご自身のGoogle Places APIキーをここに入力してください ▼▼
-  const GOOGLE_PLACES_API_KEY = '';
-  
-  // ▼ 新しいGoogle SheetsのCSVエクスポート用URLに変更しました
+  // Google SheetsのCSV URL
   const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1t1Ty6V8AIPwcH57yGU0TdYDDL6ZEarOi60J6miJvF9I/export?format=csv&gid=31963048";
 
   // ユーティリティ: テキスト正規化（比較用）
@@ -117,12 +114,10 @@
       </div>`;
   }
 
-  // ▼ 書き換え箇所：カンマ区切りの緯度経度対応
   function normalizeItem(item){
     if(!item || typeof item !== 'object') return null;
     const normalized = {};
     for(const key of Object.keys(item)){
-      // 「緯度、経度」などのカラム名を扱いやすくするため、空白や記号を削除して小文字化
       const cleanKey = key.trim().toLowerCase().replace(/[\s、・,]/g, '');
       normalized[cleanKey] = item[key];
     }
@@ -142,7 +137,6 @@
 
     let lat = null, lon = null;
     
-    // 緯度経度が結合されている可能性のあるカラムを探す（例：「座標」「緯度経度」「latlon」など）
     const combined = normalized['座標'] || normalized['緯度経度'] || normalized['latlon'] || normalized['coordinates'] || normalized['location'];
     
     if (combined && typeof combined === 'string' && combined.includes(',')) {
@@ -150,12 +144,10 @@
       lat = Number(parts[0].trim());
       lon = Number(parts[1].trim());
     } else {
-      // 従来通り別々になっている場合、もしくは片方のカラムに間違って結合されている場合
       const rawLat = normalized.lat || normalized.latitude || normalized['緯度'];
       const rawLon = normalized.lon || normalized.longitude || normalized.lng || normalized.lngt || normalized['経度'];
       
       if (rawLat && typeof rawLat === 'string' && rawLat.includes(',')) {
-        // もし「緯度」列の中に "35.6, 140.1" のように書かれていた場合
         const parts = rawLat.split(',');
         lat = Number(parts[0].trim());
         lon = Number(parts[1].trim());
@@ -170,7 +162,6 @@
     
     return result;
   }
-  // ▲ 書き換え箇所ここまで
 
   const GENRE_COLORS = {
     '豚骨':'#c0392b',
@@ -420,61 +411,6 @@
     });
   }
 
-  async function autoFetchMissingPhotos() {
-    if (!GOOGLE_PLACES_API_KEY) {
-      console.log('Google Places APIキーが未設定のため、写真の自動取得をスキップします。');
-      return;
-    }
-    
-    console.log('写真の自動取得を開始します...');
-    let updatedCount = 0;
-
-    for (const markerObj of shopMarkers) {
-      const item = markerObj.item;
-      
-      if (item.photo || item._photoFetched) continue;
-      item._photoFetched = true; 
-
-      try {
-        const query = `${item.name} ${item.address || ''}`.trim();
-        const url = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${encodeURIComponent(query)}&inputtype=textquery&fields=photos&language=ja&key=${GOOGLE_PLACES_API_KEY}`;
-        
-        const res = await fetch(url);
-        if (!res.ok) continue;
-        
-        const data = await res.json();
-        
-        if (data.status === 'OK' && data.candidates && data.candidates.length > 0) {
-          const photos = data.candidates[0].photos;
-          if (photos && photos.length > 0) {
-            const photoRef = photos[0].photo_reference;
-            const photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=320&photoreference=${photoRef}&key=${GOOGLE_PLACES_API_KEY}`;
-            
-            item.photo = photoUrl;
-            
-            const allImgs = document.querySelectorAll('img');
-            allImgs.forEach(img => {
-              if (img.alt === item.name && (img.src.includes('data:image') || img.src.includes('No Image'))) {
-                img.src = photoUrl;
-              }
-            });
-            updatedCount++;
-          }
-        }
-      } catch (err) {
-        console.warn(`写真取得エラー (${item.name}):`, err);
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    
-    if(updatedCount > 0) {
-      console.log(`${updatedCount}件の写真の自動取得・反映が完了しました。`);
-    } else {
-      console.log('新たに取得した写真はありませんでした。');
-    }
-  }
-
   async function overpassSearch(name){
     const q = name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'); 
     const bbox = '20,122,46,154';
@@ -504,29 +440,6 @@
     }
   }
 
-  async function googlePlacesSearch(name){
-    if(!GOOGLE_PLACES_API_KEY) throw new Error('Google API key is not configured.');
-    const query = `${name} ラーメン`;
-    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=ja&region=jp&key=${encodeURIComponent(GOOGLE_PLACES_API_KEY)}`;
-    const res = await fetch(url);
-    if(!res.ok) throw new Error('Google Places error ' + res.status);
-    const data = await res.json();
-    if(data.status !== 'OK' && data.status !== 'ZERO_RESULTS'){
-      throw new Error('Google Places failed: ' + data.status);
-    }
-    const items = (data.results || []).map(result=>({
-      name: result.name,
-      lat: result.geometry?.location?.lat,
-      lon: result.geometry?.location?.lng,
-      address: result.formatted_address || '',
-      hours: '',
-      photo: result.photos && result.photos[0] ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=320&photoreference=${result.photos[0].photo_reference}&key=${encodeURIComponent(GOOGLE_PLACES_API_KEY)}` : null,
-      url: result.place_id ? `https://www.google.com/maps/place/?q=place_id:${result.place_id}` : '',
-      _remote: true,
-    })).filter(it=>it.lat && it.lon && it.name);
-    return items;
-  }
-
   function loadGoogleSheetData() {
     console.log('Loading Google Sheets data...');
     return fetch(GOOGLE_SHEET_CSV_URL)
@@ -545,8 +458,6 @@
         refreshShopsSource();
         setupGenreChips();
         populateList();
-        
-        autoFetchMissingPhotos();
       })
       .catch(err => {
         console.warn('Googleスプレッドシートからのデータ読み込み失敗:', err);
@@ -775,8 +686,8 @@
   map.on('zoomend', scheduleRegionUpdate);
 
   const searchInput = document.getElementById('search');
-  document.getElementById('nationwide').checked = false;
-  document.getElementById('google-search').checked = false;
+  const nationwideCheckbox = document.getElementById('nationwide');
+  if(nationwideCheckbox) nationwideCheckbox.checked = false;
   let searchTimeout = null;
   searchInput.addEventListener('input', (ev)=>{
     clearTimeout(searchTimeout);
@@ -786,47 +697,29 @@
       const allBtn = document.querySelector('#index-tabs button:first-child');
       if(allBtn) allBtn.classList.add('active');
       
-      const nationwide = document.getElementById('nationwide').checked;
-      const googleSearch = document.getElementById('google-search').checked;
+      const nationwide = nationwideCheckbox ? nationwideCheckbox.checked : false;
       const status = document.getElementById('search-status');
-      const tasks = [];
-      if((nationwide || googleSearch) && q.trim().length>1){
+      
+      if(nationwide && q.trim().length>1){
         status.textContent = '全国検索中...';
         clearRemoteMarkers();
-        if(nationwide){
-          tasks.push(overpassSearch(q).then(items=>({source:'overpass', items})).catch(err=>{ return {source:'overpass', error:err}; }));
-        }
-        if(googleSearch){
-          tasks.push(googlePlacesSearch(q).then(items=>({source:'google', items})).catch(err=>({source:'google', error:err})));
-        }
-        const results = await Promise.all(tasks);
-        let added = 0;
-        let total = 0;
-        let errors = [];
-        for(const result of results){
-          if(result.error){
-            errors.push(`${result.source} ${result.error.message}`);
-            continue;
-          }
-          total += result.items.length;
-          result.items.forEach(it=>{
+        
+        try {
+          const items = await overpassSearch(q);
+          let added = 0;
+          items.forEach(it=>{
             if(!isDuplicateItem(it)){
               it.reviews = [];
               addMarker(it, true);
               added++;
             }
           });
+          refreshShopsSource();
+          populateList(getFilteredMarkers(q));
+          status.textContent = `取得 ${items.length} 件、追加 ${added} 件`;
+        } catch (err) {
+          status.textContent = `エラー: ${err.message}`;
         }
-        refreshShopsSource();
-        populateList(getFilteredMarkers(q));
-        if(errors.length>0){
-          status.textContent = `取得 ${total} 件、追加 ${added} 件。${errors.join(' / ')}`;
-        }else{
-          status.textContent = `取得 ${total} 件、追加 ${added} 件`;
-        }
-        
-        autoFetchMissingPhotos();
-        
       }else{
         const results = getFilteredMarkers(q);
         populateList(results);
@@ -1010,8 +903,6 @@
     setupGenreChips();
     populateList();
     document.getElementById('search-status').textContent = `${shopMarkers.length} 件のローカルデータを読み込みました。`;
-    
-    autoFetchMissingPhotos();
   }
 
   if(loadDataBtn && dataFileInput){
