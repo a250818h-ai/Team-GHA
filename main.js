@@ -27,7 +27,7 @@
   const SHOPS_SOURCE_ID = 'shops';
   
   // Google SheetsのCSV URL
-  const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1t1Ty6V8AIPwcH57yGU0TdYDDL6ZEarOi60J6miJvF9I/export?format=csv&gid=31963048";
+const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUmchphCUTPwyilugQYslVA8NEuSUhtcEcrVbzZudlNmxlYLWjViuBqfLbUPMjin0F-sG_aXyhSejV/pub?gid=31963048&single=true&output=csv";
 
   // ユーティリティ: テキスト正規化（比較用）
   function normalizeText(s){
