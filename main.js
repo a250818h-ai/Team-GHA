@@ -25,11 +25,12 @@
   let remoteMarkers = [];
   // GeoJSON source id for clustered points
   const SHOPS_SOURCE_ID = 'shops';
+  
+  // ▼▼ ご自身のGoogle Places APIキーをここに入力してください ▼▼
   const GOOGLE_PLACES_API_KEY = '';
-
-  // ▼▼ ここに追加: Google SheetsのCSV URL ▼▼
-  const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUmchphCUTPwyilugQYslVA8NEuSUhtcEcrVbzZudlNmxlYLWjViuBqfLbUPMjin0F-sG_aXyhSejV/pub?gid=0&single=true&output=csv";
-  // ▲▲ ここまで ▲▲
+  
+  // ▼ 新しいGoogle SheetsのCSVエクスポート用URLに変更しました
+  const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1t1Ty6V8AIPwcH57yGU0TdYDDL6ZEarOi60J6miJvF9I/export?format=csv&gid=31963048";
 
   // ユーティリティ: テキスト正規化（比較用）
   function normalizeText(s){
@@ -79,7 +80,6 @@
     return (s / item.reviews.length);
   }
 
-  // より厳密な重複判定: 名前一致かつ住所一致、または近接かつ名前一致
   function isDuplicateItem(newItem){
     const normalized = normalizeItem(newItem);
     if(!normalized || !normalized.name) return false;
@@ -117,32 +117,61 @@
       </div>`;
   }
 
+  // ▼ 書き換え箇所：カンマ区切りの緯度経度対応
   function normalizeItem(item){
     if(!item || typeof item !== 'object') return null;
     const normalized = {};
     for(const key of Object.keys(item)){
-      normalized[key.trim().toLowerCase()] = item[key];
+      // 「緯度、経度」などのカラム名を扱いやすくするため、空白や記号を削除して小文字化
+      const cleanKey = key.trim().toLowerCase().replace(/[\s、・,]/g, '');
+      normalized[cleanKey] = item[key];
     }
+    
     const result = {
-      name: normalized.name || normalized.shop || normalized.title || '',
-      address: normalized.address || normalized.addr || normalized['addr:full'] || normalized['addr:street'] || normalized['addr:city'] || '',
-      hours: normalized.hours || normalized.opening_hours || normalized.open || '',
+      name: normalized.name || normalized.shop || normalized.title || normalized['店舗名'] || '',
+      address: normalized.address || normalized.addr || normalized['住所'] || '',
+      hours: normalized.hours || normalized.opening_hours || normalized.open || normalized['営業時間'] || '',
       photo: normalized.photo || normalized.image || normalized.img || '',
       url: normalized.url || normalized.website || '',
       city: normalized.city || '',
       prefecture: normalized.prefecture || normalized.state || normalized.region || normalized['県'] || '',
       _remote: normalized._remote || false,
-      genre: normalized.genre || normalized.type || normalized['ジャンル'] || normalized.category || '',
+      genre: normalized.genre || normalized.type || normalized.category || normalized['ジャンル'] || '',
       reviews: Array.isArray(normalized.reviews) ? normalized.reviews : [],
     };
-    const lat = normalized.lat || normalized.latitude || normalized['緯度'];
-    const lon = normalized.lon || normalized.longitude || normalized.lng || normalized.lngt || normalized['経度'];
-    result.lat = lat != null && lat !== '' ? Number(lat) : null;
-    result.lon = lon != null && lon !== '' ? Number(lon) : null;
+
+    let lat = null, lon = null;
+    
+    // 緯度経度が結合されている可能性のあるカラムを探す（例：「座標」「緯度経度」「latlon」など）
+    const combined = normalized['座標'] || normalized['緯度経度'] || normalized['latlon'] || normalized['coordinates'] || normalized['location'];
+    
+    if (combined && typeof combined === 'string' && combined.includes(',')) {
+      const parts = combined.split(',');
+      lat = Number(parts[0].trim());
+      lon = Number(parts[1].trim());
+    } else {
+      // 従来通り別々になっている場合、もしくは片方のカラムに間違って結合されている場合
+      const rawLat = normalized.lat || normalized.latitude || normalized['緯度'];
+      const rawLon = normalized.lon || normalized.longitude || normalized.lng || normalized.lngt || normalized['経度'];
+      
+      if (rawLat && typeof rawLat === 'string' && rawLat.includes(',')) {
+        // もし「緯度」列の中に "35.6, 140.1" のように書かれていた場合
+        const parts = rawLat.split(',');
+        lat = Number(parts[0].trim());
+        lon = Number(parts[1].trim());
+      } else {
+        lat = rawLat != null && rawLat !== '' ? Number(rawLat) : null;
+        lon = rawLon != null && rawLon !== '' ? Number(rawLon) : null;
+      }
+    }
+    
+    result.lat = isNaN(lat) ? null : lat;
+    result.lon = isNaN(lon) ? null : lon;
+    
     return result;
   }
+  // ▲ 書き換え箇所ここまで
 
-  // Genre color mapping
   const GENRE_COLORS = {
     '豚骨':'#c0392b',
     '醤油':'#3498db',
@@ -161,11 +190,9 @@
     const normalized = normalizeItem(item);
     if(!normalized.name) return;
     if(!normalized.reviews) normalized.reviews = [];
-    // Note: markers are rendered from a clustered GeoJSON source.
     shopMarkers.push({marker: null, item: normalized});
     if(normalized._remote) remoteMarkers.push({marker: null, item: normalized});
     if(!shops.includes(normalized)) shops.push(normalized);
-    // update GeoJSON source data
     if (!preventRefresh) {
       refreshShopsSource();
     }
@@ -193,7 +220,6 @@
   function clearRemoteMarkers(){
     remoteMarkers.forEach(m=>{ try{ if(m.marker && typeof m.marker.remove === 'function') m.marker.remove(); }catch(e){} });
     remoteMarkers = [];
-    // also remove from shopMarkers
     shopMarkers = shopMarkers.filter(m=>!m.item._remote);
   }
 
@@ -202,7 +228,6 @@
     ul.innerHTML = '';
     const list = filteredMarkers || shopMarkers;
     const query = document.getElementById('search').value || '';
-    // update count
     const countEl = document.getElementById('shop-count');
     if(countEl) countEl.innerHTML = `全国店舗・施設<br>${shopMarkers.length}店舗・施設掲載`;
     if(list.length === 0){
@@ -212,7 +237,6 @@
       ul.appendChild(li);
       return;
     }
-    // ソート設定を尊重して表示
     const sort = document.getElementById('sort') ? document.getElementById('sort').value : 'relevance';
     const center = map.getCenter();
     const enriched = list.map(m=>{
@@ -222,7 +246,6 @@
     });
     if(sort === 'distance') enriched.sort((a,b)=> (a.distance||9999) - (b.distance||9999));
     else if(sort === 'rating') enriched.sort((a,b)=> (b.rating||0) - (a.rating||0));
-    // Group by prefecture for sidebar
     const groups = {};
     enriched.forEach(e=>{
       const p = e.m.item.prefecture || 'その他';
@@ -274,11 +297,10 @@
   function flyToShop(entry){
     if(!entry || !entry.item) return;
     map.flyTo({center:[entry.item.lon, entry.item.lat], zoom:15});
-    // show popup at coordinates
     try{
       const html = popupHtml(entry.item);
       new maplibregl.Popup({offset:12}).setLngLat([entry.item.lon, entry.item.lat]).setHTML(html).addTo(map);
-    }catch(e){/* ignore */}
+    }catch(e){}
   }
 
   function getListViewItems(query, sortBy){
@@ -384,7 +406,6 @@
 
   function getFilteredMarkers(query){
     const q = normalizeText(query || '');
-    // genre chips
     const activeChips = document.querySelectorAll('#genre-filters .genre-chip.active');
     const activeGenres = Array.from(activeChips).map(c=>c.dataset.genre).filter(Boolean);
     return shopMarkers.filter(m => {
@@ -399,10 +420,64 @@
     });
   }
 
-  // Overpass API を使った全国検索 (日本のbboxで制限)
+  async function autoFetchMissingPhotos() {
+    if (!GOOGLE_PLACES_API_KEY) {
+      console.log('Google Places APIキーが未設定のため、写真の自動取得をスキップします。');
+      return;
+    }
+    
+    console.log('写真の自動取得を開始します...');
+    let updatedCount = 0;
+
+    for (const markerObj of shopMarkers) {
+      const item = markerObj.item;
+      
+      if (item.photo || item._photoFetched) continue;
+      item._photoFetched = true; 
+
+      try {
+        const query = `${item.name} ${item.address || ''}`.trim();
+        const url = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${encodeURIComponent(query)}&inputtype=textquery&fields=photos&language=ja&key=${GOOGLE_PLACES_API_KEY}`;
+        
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        
+        const data = await res.json();
+        
+        if (data.status === 'OK' && data.candidates && data.candidates.length > 0) {
+          const photos = data.candidates[0].photos;
+          if (photos && photos.length > 0) {
+            const photoRef = photos[0].photo_reference;
+            const photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=320&photoreference=${photoRef}&key=${GOOGLE_PLACES_API_KEY}`;
+            
+            item.photo = photoUrl;
+            
+            const allImgs = document.querySelectorAll('img');
+            allImgs.forEach(img => {
+              if (img.alt === item.name && (img.src.includes('data:image') || img.src.includes('No Image'))) {
+                img.src = photoUrl;
+              }
+            });
+            updatedCount++;
+          }
+        }
+      } catch (err) {
+        console.warn(`写真取得エラー (${item.name}):`, err);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    if(updatedCount > 0) {
+      console.log(`${updatedCount}件の写真の自動取得・反映が完了しました。`);
+    } else {
+      console.log('新たに取得した写真はありませんでした。');
+    }
+  }
+
   async function overpassSearch(name){
-    const q = name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'); // エスケープ
-    const bbox = '20,122,46,154'; // south,west,north,east (日本全域)
+    const q = name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'); 
+    const bbox = '20,122,46,154';
     const body = `[out:json][timeout:25];(node["name"~"${q}",i](${bbox});way["name"~"${q}",i](${bbox});relation["name"~"${q}",i](${bbox}););out center;`;
     const url = 'https://overpass-api.de/api/interpreter';
     try{
@@ -425,7 +500,6 @@
       }).filter(it=>it.lat && it.lon && it.name);
       return items;
     }catch(err){
-      console.warn('Overpass search failed', err);
       throw err;
     }
   }
@@ -453,33 +527,6 @@
     return items;
   }
 
-  // 元のサンプル読み込み関数
-  function loadSampleData(){
-    console.log('Loading sample data...');
-    return fetch('data/ramen.json')
-      .then(r=>{
-        console.log('Fetch response status:', r.status);
-        if(!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then(data=>{
-        if(!Array.isArray(data)) throw new Error('Invalid sample data');
-        console.log('Sample data loaded:', data.length, 'items');
-        data.forEach(d=>{
-          if(!shops.includes(d)) shops.push(d);
-          addMarker(d, true);
-        });
-        refreshShopsSource();
-        setupGenreChips();
-        populateList();
-      })
-      .catch(err=>{
-        console.warn('サンプルデータ読み込み失敗:', err);
-        loadLocalDataset(DEFAULT_SHOPS);
-      });
-  }
-
-  // ▼▼ ここに追加: Google Sheets からのデータ読み込み関数 ▼▼
   function loadGoogleSheetData() {
     console.log('Loading Google Sheets data...');
     return fetch(GOOGLE_SHEET_CSV_URL)
@@ -489,23 +536,22 @@
       })
       .then(csvText => {
         const data = parseCSV(csvText); 
-        console.log('Google Sheets data loaded:', data.length, 'items');
         
         data.forEach(d => {
           if(!shops.includes(d)) shops.push(d);
-          addMarker(d, true); // 個別の再描画をスキップ
+          addMarker(d, true);
         });
         
-        // 全件追加後に1回だけマップとUI全体を更新する
         refreshShopsSource();
         setupGenreChips();
         populateList();
+        
+        autoFetchMissingPhotos();
       })
       .catch(err => {
         console.warn('Googleスプレッドシートからのデータ読み込み失敗:', err);
       });
   }
-  // ▲▲ ここまで ▲▲
 
   async function reverseGeocode(lat, lon){
     const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&accept-language=ja&addressdetails=1`;
@@ -515,7 +561,6 @@
       const data = await res.json();
       return data.address || {};
     }catch(err){
-      console.warn('reverseGeocode error', err);
       return null;
     }
   }
@@ -551,9 +596,7 @@
         });
         map.addControl(currentLocationControl, 'top-left');
       }
-    }catch(err){
-      console.warn('Geolocation control not available', err);
-    }
+    }catch(err){}
   }
 
   function locateCurrentPosition(){
@@ -571,14 +614,13 @@
       map.flyTo({center:[lon, lat], zoom: 14});
       new maplibregl.Popup({offset:12}).setLngLat([lon, lat]).setHTML('<div>現在地</div>').addTo(map);
     }, (err)=>{
-      console.warn('Geolocation error', err);
       alert('現在地の取得に失敗しました。位置情報の利用を許可してください。');
     }, { enableHighAccuracy: true, timeout: 10000 });
   }
 
   function haversine(lat1, lon1, lat2, lon2){
     const toRad = deg => deg * Math.PI / 180;
-    const R = 6371; // km
+    const R = 6371;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
     const a = Math.sin(dLat/2) * Math.sin(dLat/2)
@@ -604,12 +646,9 @@
   let lastRegionKey = '';
 
   map.on('load', ()=>{
-    // OpenStreetMap のラスタタイルをベースマップとして追加
     map.addSource('osm', {
       type: 'raster',
-      tiles: [
-        'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-      ],
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
       tileSize: 256
     });
     map.addLayer({
@@ -621,9 +660,7 @@
 
     map.addSource('satellite', {
       type: 'raster',
-      tiles: [
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-      ],
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
       tileSize: 256
     });
     map.addLayer({
@@ -647,7 +684,6 @@
       locateBtn.addEventListener('click', locateCurrentPosition);
     }
 
-    // クラスタ化された店舗ソースを追加
     try{
       map.addSource(SHOPS_SOURCE_ID, {
         type: 'geojson',
@@ -657,38 +693,20 @@
         clusterRadius: 40
       });
 
-      // cluster circles
       map.addLayer({
         id: 'clusters',
         type: 'circle',
         source: SHOPS_SOURCE_ID,
         filter: ['has', 'point_count'],
         paint: {
-          'circle-color': [
-            'step',
-            ['get', 'point_count'],
-            '#51bbd6',
-            10,
-            '#f1f075',
-            30,
-            '#f28cb1'
-          ],
-          'circle-radius': [
-            'step',
-            ['get', 'point_count'],
-            12,
-            10,
-            18,
-            30,
-            24
-          ],
+          'circle-color': ['step',['get', 'point_count'],'#51bbd6',10,'#f1f075',30,'#f28cb1'],
+          'circle-radius': ['step',['get', 'point_count'],12,10,18,30,24],
           'circle-opacity': 0.8,
           'circle-stroke-width': 1,
           'circle-stroke-color': '#fff'
         }
       });
 
-      // cluster count labels
       map.addLayer({
         id: 'cluster-count',
         type: 'symbol',
@@ -702,7 +720,6 @@
         paint: { 'text-color': '#000' }
       });
 
-      // unclustered points
       map.addLayer({
         id: 'unclustered-point',
         type: 'circle',
@@ -710,19 +727,13 @@
         filter: ['!', ['has', 'point_count']],
         paint: {
           'circle-color': [
-            'match', 
-            ['get', 'genre'], 
-            '豚骨', GENRE_COLORS['豚骨'], 
-            '醤油', GENRE_COLORS['醤油'], 
-            '味噌', GENRE_COLORS['味噌'], 
-            '塩', GENRE_COLORS['塩'], 
-            '家系', GENRE_COLORS['家系'], 
-            '二郎系', GENRE_COLORS['二郎系'],
-            'school', GENRE_COLORS['school'],
-            'station', GENRE_COLORS['station'],
-            'park', GENRE_COLORS['park'],
-            'tourism', GENRE_COLORS['tourism'],
-            '#c0392b' // default
+            'match', ['get', 'genre'], 
+            '豚骨', GENRE_COLORS['豚骨'], '醤油', GENRE_COLORS['醤油'], 
+            '味噌', GENRE_COLORS['味噌'], '塩', GENRE_COLORS['塩'], 
+            '家系', GENRE_COLORS['家系'], '二郎系', GENRE_COLORS['二郎系'],
+            'school', GENRE_COLORS['school'], 'station', GENRE_COLORS['station'],
+            'park', GENRE_COLORS['park'], 'tourism', GENRE_COLORS['tourism'],
+            '#c0392b'
           ],
           'circle-radius': 8,
           'circle-stroke-width': 2,
@@ -730,19 +741,6 @@
         }
       });
 
-      // create a simple circular icon as canvas and add as image
-      const canvas = document.createElement('canvas');
-      canvas.width = 40; canvas.height = 40;
-      const ctx = canvas.getContext('2d');
-      // draw outer circle
-      ctx.beginPath(); ctx.arc(20,20,16,0,Math.PI*2); ctx.fillStyle = '#c0392b'; ctx.fill();
-      // inner white ring
-      ctx.beginPath(); ctx.arc(20,20,10,0,Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill();
-      // small dot
-      ctx.beginPath(); ctx.arc(20,20,4,0,Math.PI*2); ctx.fillStyle = '#c0392b'; ctx.fill();
-      map.addImage('ramen-circle', canvas, { pixelRatio: 2 });
-
-      // cluster click: zoom into cluster
       map.on('click', 'clusters', function(e){
         const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
         if(!features || !features.length) return;
@@ -753,7 +751,6 @@
         });
       });
 
-      // click unclustered point: show popup
       map.on('click', 'unclustered-point', function(e){
         const feature = e.features && e.features[0];
         if(!feature) return;
@@ -764,24 +761,19 @@
         new maplibregl.Popup({offset:12}).setLngLat(coords).setHTML(popupHtml(item)).addTo(map);
       });
 
-      // change cursor for clickable layers
       map.on('mouseenter', 'clusters', ()=> map.getCanvas().style.cursor = 'pointer');
       map.on('mouseleave', 'clusters', ()=> map.getCanvas().style.cursor = '');
       map.on('mouseenter', 'unclustered-point', ()=> map.getCanvas().style.cursor = 'pointer');
       map.on('mouseleave', 'unclustered-point', ()=> map.getCanvas().style.cursor = '');
-    }catch(err){ console.warn('cluster layers init failed', err); }
+    }catch(err){}
 
-    // ▼▼ ここを変更: JSONの代わりにGoogle Sheetsからデータを読み込む ▼▼
     loadGoogleSheetData();
-    // ▲▲ ここまで ▲▲
-
     scheduleRegionUpdate();
   });
 
   map.on('moveend', scheduleRegionUpdate);
   map.on('zoomend', scheduleRegionUpdate);
 
-  // 検索入力による絞り込み
   const searchInput = document.getElementById('search');
   document.getElementById('nationwide').checked = false;
   document.getElementById('google-search').checked = false;
@@ -790,7 +782,6 @@
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(async ()=>{
       const q = ev.target.value || '';
-      // 検索入力時：索引タブをリセット
       document.querySelectorAll('#index-tabs button').forEach(b=>b.classList.remove('active'));
       const allBtn = document.querySelector('#index-tabs button:first-child');
       if(allBtn) allBtn.classList.add('active');
@@ -833,6 +824,9 @@
         }else{
           status.textContent = `取得 ${total} 件、追加 ${added} 件`;
         }
+        
+        autoFetchMissingPhotos();
+        
       }else{
         const results = getFilteredMarkers(q);
         populateList(results);
@@ -840,7 +834,7 @@
       }
     }, 150);
   });
-  // Enter で先頭の結果に移動
+
   searchInput.addEventListener('keydown', (ev)=>{
     if(ev.key === 'Enter'){
       ev.preventDefault();
@@ -859,14 +853,12 @@
   const listSort = document.getElementById('list-sort');
   if(listSort) listSort.addEventListener('change', renderListView);
 
-  // 並び替えの変更を監視
   const sortSelect = document.getElementById('sort');
   if(sortSelect) sortSelect.addEventListener('change', ()=>{
     const q = document.getElementById('search').value || '';
     populateList(getFilteredMarkers(q));
   });
 
-  // CSV 出力
   function exportCSV(){
     const q = document.getElementById('search').value || '';
     const rows = getFilteredMarkers(q);
@@ -879,7 +871,6 @@
       const rating = avgRating(it);
       const dist = it.lat && it.lon ? haversine(center.lat, center.lng, it.lat, it.lon).toFixed(3) : '';
       const vals = [it.name, it.lat, it.lon, it.address||'', it.hours||'', it.url||'', rating!=null?rating.toFixed(2):'', dist];
-      // escape double quotes
       const csvLine = vals.map(v=> typeof v === 'string' && v.includes(',') ? '"'+v.replace(/"/g,'""')+'"' : v).join(',');
       lines.push(csvLine);
     });
@@ -896,14 +887,11 @@
   const exportBtn = document.getElementById('export-csv');
   if(exportBtn) exportBtn.addEventListener('click', exportCSV);
 
-  // Setup genre chips in sidebar
   function setupGenreChips(){
     const container = document.getElementById('genre-filters');
     if(!container) return;
     container.innerHTML = '';
-    // collect unique genres
     const genres = new Set(shopMarkers.map(m=> (m.item.genre || '').trim()).filter(Boolean));
-    // default order
     const preferred = ['豚骨','醤油','味噌','塩','家系','二郎系','school','station','park','tourism'];
     const others = Array.from(genres).filter(g=>!preferred.includes(g)).sort();
     const ordered = preferred.filter(g=>genres.has(g)).concat(others);
@@ -920,7 +908,6 @@
     });
   }
 
-  // Preset buttons
   const presetContainer = document.getElementById('preset-buttons');
   if(presetContainer){
     presetContainer.addEventListener('click', (ev)=>{
@@ -930,7 +917,6 @@
       if(p === 'university'){
         map.flyTo({center: center, zoom:15});
       } else if(p === 'famous'){
-        // fit to all markers
         fitBoundsForMarkers(shopMarkers.map(m=>m.item));
       } else if(p === 'chain'){
         const chains = ['一蘭','山岡家','丸源','幸楽苑','丸亀製麺'];
@@ -1012,16 +998,20 @@
     if(!Array.isArray(items)) return;
     clearLocalData();
     items.forEach(item=>{
-      if(item && item.lat != null && item.lon != null && item.name){
-        if(!item.reviews) item.reviews = [];
-        addMarker(item, true);
+      if(item && item.name){
+        const norm = normalizeItem(item);
+        if(norm && norm.lat != null && norm.lon != null){
+          if(!item.reviews) item.reviews = [];
+          addMarker(item, true);
+        }
       }
     });
-    // refresh UI and genre chips
     refreshShopsSource();
     setupGenreChips();
     populateList();
     document.getElementById('search-status').textContent = `${shopMarkers.length} 件のローカルデータを読み込みました。`;
+    
+    autoFetchMissingPhotos();
   }
 
   if(loadDataBtn && dataFileInput){
@@ -1057,7 +1047,6 @@
     });
   }
 
-  // 検索結果を保存
   function saveResults(){
     const q = document.getElementById('search').value || '';
     const rows = getFilteredMarkers(q);
@@ -1089,18 +1078,22 @@
   }
   const saveBtn = document.getElementById('save-results');
   if(saveBtn) saveBtn.addEventListener('click', saveResults);
+
   function showDetail(item){
-    // overlay
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.tabIndex = -1;
     const modal = document.createElement('div');
     modal.className = 'modal';
     const rating = avgRating(item);
+    
+    const placeholder = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="140"><rect fill="%23eeeeee" width="100%25" height="100%25"/><text x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="%23999">No Image</text></svg>';
+    const imgSrc = (item.photo && String(item.photo).trim()) ? item.photo : placeholder;
+    
     modal.innerHTML = `
       <button class="btn-close">閉じる</button>
       <h3>${item.name}</h3>
-      ${item.photo?`<img src="${item.photo}" style="max-width:100%;height:auto;margin-bottom:8px">`:''}
+      <img src="${imgSrc}" alt="${item.name}" style="max-width:100%;height:auto;margin-bottom:8px" onerror="this.src='${placeholder}'">
       <div>${item.address||''}</div>
       <div>${item.hours||''}</div>
       ${item.url?`<div><a href="${item.url}" target="_blank">公式サイト</a></div>`:''}
@@ -1109,13 +1102,13 @@
       <ul class="review-list"></ul>
       <form id="review-form">
         <label>点数: <select id="review-score"><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></label>
-        <div><textarea id="review-comment" placeholder="感想（任意）」 style="width:100%;height:60px;margin-top:6px"></textarea></div>
+        <div><textarea id="review-comment" placeholder="感想（任意）" style="width:100%;height:60px;margin-top:6px"></textarea></div>
         <div style="margin-top:8px"><button type="submit">レビュー投稿</button></div>
       </form>
     `;
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
-    // render reviews
+
     function renderReviews(){
       const ul = modal.querySelector('.review-list');
       ul.innerHTML = '';
@@ -1129,10 +1122,10 @@
       });
     }
     renderReviews();
-    // close
+    
     modal.querySelector('.btn-close').addEventListener('click', ()=>{ overlay.remove(); });
     overlay.addEventListener('click', (ev)=>{ if(ev.target === overlay) overlay.remove(); });
-    // review submit
+    
     modal.querySelector('#review-form').addEventListener('submit', (ev)=>{
       ev.preventDefault();
       const score = parseInt(modal.querySelector('#review-score').value,10);
@@ -1140,8 +1133,6 @@
       if(!item.reviews) item.reviews = [];
       item.reviews.push({score, comment, date: Date.now()});
       renderReviews();
-      // update popup and list
-      // refresh data source and list (marker popups are generated from properties)
       refreshShopsSource();
       populateList(getFilteredMarkers(document.getElementById('search').value || ''));
     });
