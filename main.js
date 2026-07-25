@@ -115,6 +115,25 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
   }
 
   // ★修正箇所：normalizeItem 関数
+  function isValidLatLon(lat, lon){
+    return typeof lat === 'number' && typeof lon === 'number'
+      && Number.isFinite(lat) && Number.isFinite(lon)
+      && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+  }
+
+  function parseCoordinatePair(value){
+    if(value == null) return null;
+    const text = String(value).trim().replace(/[()（）\uFEFF]/g, '');
+    if(!text) return null;
+    const parts = text.split(/[,	;\/\s]+/).filter(Boolean);
+    if(parts.length < 2) return null;
+    const lat = Number(parts[0].trim());
+    const lon = Number(parts[1].trim());
+    if(isValidLatLon(lat, lon)) return {lat, lon};
+    if(isValidLatLon(Number(parts[1].trim()), Number(parts[0].trim()))) return {lat: Number(parts[1].trim()), lon: Number(parts[0].trim())};
+    return null;
+  }
+
   function normalizeItem(item){
     if(!item || typeof item !== 'object') return null;
     const normalized = {};
@@ -137,38 +156,36 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
       reviews: Array.isArray(normalized.reviews) ? normalized.reviews : [],
     };
 
-    let lat = null, lon = null;
-    
-    const combined = normalized['座標'] || normalized['緯度経度'] || normalized['latlon'] || normalized['coordinates'] || normalized['location'];
-    
-    if (combined && typeof combined === 'string' && combined.includes(',')) {
-      // 括弧を除去
-      const cleaned = combined.replace(/[()（）]/g, '');
-      const parts = cleaned.split(',');
-      lat = Number(parts[0].trim());
-      lon = Number(parts[1].trim());
+    let lat = null;
+    let lon = null;
+
+    const combined = normalized['座標'] || normalized['緯度経度'] || normalized['latlon'] || normalized['coordinates'] || normalized['location'] || normalized['coordinate'];
+    const combinedPair = parseCoordinatePair(combined);
+    if(combinedPair){
+      lat = combinedPair.lat;
+      lon = combinedPair.lon;
     } else {
       const rawLat = normalized.lat || normalized.latitude || normalized['緯度'];
       const rawLon = normalized.lon || normalized.longitude || normalized.lng || normalized.lngt || normalized['経度'];
-      
-      if (rawLat && typeof rawLat === 'string' && rawLat.includes(',')) {
-        // 括弧を除去
-        const cleaned = rawLat.replace(/[()（）]/g, '');
-        const parts = cleaned.split(',');
-        lat = Number(parts[0].trim());
-        lon = Number(parts[1].trim());
+      const parsedPair = parseCoordinatePair(rawLat) || parseCoordinatePair(rawLon) || parseCoordinatePair(`${rawLat || ''} ${rawLon || ''}`);
+      if(parsedPair){
+        lat = parsedPair.lat;
+        lon = parsedPair.lon;
       } else {
-        // 単独セルでも括弧を除去
-        const cleanedLat = rawLat != null ? String(rawLat).replace(/[()（）]/g, '') : '';
-        const cleanedLon = rawLon != null ? String(rawLon).replace(/[()（）]/g, '') : '';
-        lat = cleanedLat !== '' ? Number(cleanedLat) : null;
-        lon = cleanedLon !== '' ? Number(cleanedLon) : null;
+        const cleanedLat = rawLat != null ? Number(String(rawLat).trim().replace(/[()（）\uFEFF]/g, '')) : null;
+        const cleanedLon = rawLon != null ? Number(String(rawLon).trim().replace(/[()（）\uFEFF]/g, '')) : null;
+        if(isValidLatLon(cleanedLat, cleanedLon)){
+          lat = cleanedLat;
+          lon = cleanedLon;
+        } else if(isValidLatLon(cleanedLon, cleanedLat)){
+          lat = cleanedLon;
+          lon = cleanedLat;
+        }
       }
     }
-    
-    result.lat = isNaN(lat) ? null : lat;
-    result.lon = isNaN(lon) ? null : lon;
-    
+
+    result.lat = isValidLatLon(lat, lon) ? lat : null;
+    result.lon = isValidLatLon(lat, lon) ? lon : null;
     return result;
   }
 
@@ -459,16 +476,30 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     return fetch(GOOGLE_SHEET_CSV_URL)
       .then(r => {
         if(!r.ok) throw new Error('HTTP ' + r.status);
-        return r.text(); 
+        return r.text();
       })
       .then(csvText => {
-        const data = parseCSV(csvText); 
-        
+        const data = parseCSV(csvText);
+        console.log('Google Sheets parsed rows:', data.length);
+        let added = 0;
+        let parsedCoords = 0;
+        let missingCoords = 0;
+
         data.forEach(d => {
-          if(!shops.includes(d)) shops.push(d);
+          if(!shops.some(s => normalizeText(s.name) === normalizeText(d.name || s.name) && normalizeText(s.address) === normalizeText(d.address || s.address))){
+            shops.push(d);
+          }
+          const normalized = normalizeItem(d);
+          if(normalized && normalized.lat != null && normalized.lon != null){
+            parsedCoords += 1;
+          } else {
+            missingCoords += 1;
+          }
           addMarker(d, true);
+          added += 1;
         });
-        
+
+        console.log(`Google Sheets imported ${added} rows: coords OK=${parsedCoords}, missing=${missingCoords}`);
         refreshShopsSource();
         setupGenreChips();
         populateList();
@@ -869,7 +900,8 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
   }
 
   function parseCSV(text){
-    const lines = text.replace(/\r/g,'').split('\n').filter(line=>line.trim());
+    text = String(text).replace(/^\uFEFF/, '');
+    const lines = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
     if(lines.length === 0) return [];
     const parseRow = (row) => {
       const values = [];
@@ -902,8 +934,10 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
       values.push(current);
       return values;
     };
-    const headers = parseRow(lines[0]).map(h=>h.trim().toLowerCase());
-    return lines.slice(1).map(line=>{
+    const filtered = lines.filter(line => line.trim() !== '');
+    if(filtered.length === 0) return [];
+    const headers = parseRow(filtered[0]).map(h=>h.trim().toLowerCase());
+    return filtered.slice(1).map(line=>{
       const cols = parseRow(line);
       const item = {};
       headers.forEach((key, idx)=>{ item[key] = cols[idx] !== undefined ? cols[idx].trim() : ''; });
