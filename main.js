@@ -114,6 +114,7 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
       </div>`;
   }
 
+  // ★修正箇所：normalizeItem 関数
   function normalizeItem(item){
     if(!item || typeof item !== 'object') return null;
     const normalized = {};
@@ -131,7 +132,8 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
       city: normalized.city || '',
       prefecture: normalized.prefecture || normalized.state || normalized.region || normalized['県'] || '',
       _remote: normalized._remote || false,
-      genre: normalized.genre || normalized.type || normalized.category || normalized['ジャンル'] || '',
+      // category も genre として読み込めるように追加
+      genre: normalized.genre || normalized.category || normalized.type || normalized['ジャンル'] || '',
       reviews: Array.isArray(normalized.reviews) ? normalized.reviews : [],
     };
 
@@ -140,7 +142,9 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     const combined = normalized['座標'] || normalized['緯度経度'] || normalized['latlon'] || normalized['coordinates'] || normalized['location'];
     
     if (combined && typeof combined === 'string' && combined.includes(',')) {
-      const parts = combined.split(',');
+      // 括弧を除去
+      const cleaned = combined.replace(/[()（）]/g, '');
+      const parts = cleaned.split(',');
       lat = Number(parts[0].trim());
       lon = Number(parts[1].trim());
     } else {
@@ -148,12 +152,17 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
       const rawLon = normalized.lon || normalized.longitude || normalized.lng || normalized.lngt || normalized['経度'];
       
       if (rawLat && typeof rawLat === 'string' && rawLat.includes(',')) {
-        const parts = rawLat.split(',');
+        // 括弧を除去
+        const cleaned = rawLat.replace(/[()（）]/g, '');
+        const parts = cleaned.split(',');
         lat = Number(parts[0].trim());
         lon = Number(parts[1].trim());
       } else {
-        lat = rawLat != null && rawLat !== '' ? Number(rawLat) : null;
-        lon = rawLon != null && rawLon !== '' ? Number(rawLon) : null;
+        // 単独セルでも括弧を除去
+        const cleanedLat = rawLat != null ? String(rawLat).replace(/[()（）]/g, '') : '';
+        const cleanedLon = rawLon != null ? String(rawLon).replace(/[()（）]/g, '') : '';
+        lat = cleanedLat !== '' ? Number(cleanedLat) : null;
+        lon = cleanedLon !== '' ? Number(cleanedLon) : null;
       }
     }
     
@@ -173,7 +182,12 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     'school':'#2563eb',
     'station':'#dc2626',
     'park':'#16a34a',
-    'tourism':'#f59e0b'
+    'tourism':'#f59e0b',
+    'iekei':'#34495e',       // スプレッドシート側の入力値(iekei)の色
+    'tsukemen':'#8e44ad',    // スプレッドシート側の入力値(tsukemen)の色
+    'jiro':'#9b59b6',        // スプレッドシート側の入力値(jiro)の色
+    'aburasoba':'#d35400',   // スプレッドシート側の入力値(aburasoba)の色
+    'jimotokei':'#27ae60'    // スプレッドシート側の入力値(jimotokei)の色
   };
 
   function addMarker(item, preventRefresh = false){
@@ -639,11 +653,21 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
         paint: {
           'circle-color': [
             'match', ['get', 'genre'], 
-            '豚骨', GENRE_COLORS['豚骨'], '醤油', GENRE_COLORS['醤油'], 
-            '味噌', GENRE_COLORS['味噌'], '塩', GENRE_COLORS['塩'], 
-            '家系', GENRE_COLORS['家系'], '二郎系', GENRE_COLORS['二郎系'],
-            'school', GENRE_COLORS['school'], 'station', GENRE_COLORS['station'],
-            'park', GENRE_COLORS['park'], 'tourism', GENRE_COLORS['tourism'],
+            '豚骨', GENRE_COLORS['豚骨'] || '#c0392b',
+            '醤油', GENRE_COLORS['醤油'] || '#3498db', 
+            '味噌', GENRE_COLORS['味噌'] || '#f1c40f',
+            '塩', GENRE_COLORS['塩'] || '#2ecc71', 
+            '家系', GENRE_COLORS['家系'] || '#34495e',
+            '二郎系', GENRE_COLORS['二郎系'] || '#9b59b6',
+            'iekei', GENRE_COLORS['iekei'] || '#34495e',
+            'tsukemen', GENRE_COLORS['tsukemen'] || '#8e44ad',
+            'jiro', GENRE_COLORS['jiro'] || '#9b59b6',
+            'aburasoba', GENRE_COLORS['aburasoba'] || '#d35400',
+            'jimotokei', GENRE_COLORS['jimotokei'] || '#27ae60',
+            'school', GENRE_COLORS['school'] || '#2563eb',
+            'station', GENRE_COLORS['station'] || '#dc2626',
+            'park', GENRE_COLORS['park'] || '#16a34a',
+            'tourism', GENRE_COLORS['tourism'] || '#f59e0b',
             '#c0392b'
           ],
           'circle-radius': 8,
@@ -785,7 +809,7 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     if(!container) return;
     container.innerHTML = '';
     const genres = new Set(shopMarkers.map(m=> (m.item.genre || '').trim()).filter(Boolean));
-    const preferred = ['豚骨','醤油','味噌','塩','家系','二郎系','school','station','park','tourism'];
+    const preferred = ['豚骨','醤油','味噌','塩','家系','二郎系','school','station','park','tourism', 'iekei', 'tsukemen', 'jiro', 'aburasoba', 'jimotokei'];
     const others = Array.from(genres).filter(g=>!preferred.includes(g)).sort();
     const ordered = preferred.filter(g=>genres.has(g)).concat(others);
     ordered.forEach(g=>{
