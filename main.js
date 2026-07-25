@@ -11,7 +11,12 @@
   console.log('Creating map...');
   const map = new maplibregl.Map({
     container: 'map',
-    style: { version: 8, sources: {}, layers: [] },
+    style: {
+      version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      sources: {},
+      layers: []
+    },
     center: center,
     zoom: 11,
     pitch: 45,
@@ -138,12 +143,19 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     if(!item || typeof item !== 'object') return null;
     const normalized = {};
     for(const key of Object.keys(item)){
-      const cleanKey = key.trim().toLowerCase().replace(/[\s、・,]/g, '');
+      const cleanKey = String(key)
+        .trim()
+        .toLowerCase()
+        .replace(/\(.*?\)/g, '')
+        .replace(/例.*$/g, '')
+        .replace(/[\r\n]/g, ' ')
+        .replace(/[\s、・,]+/g, '')
+        .replace(/[^\w\u3040-\u30ff\u4e00-\u9fff]+/g, '');
       normalized[cleanKey] = item[key];
     }
     
     const result = {
-      name: normalized.name || normalized.shop || normalized.title || normalized['店舗名'] || '',
+      name: normalized.name || normalized.shop || normalized.title || normalized['店舗名'] || normalized['店名'] || normalized['名前'] || '',
       address: normalized.address || normalized.addr || normalized['住所'] || '',
       hours: normalized.hours || normalized.opening_hours || normalized.open || normalized['営業時間'] || '',
       photo: normalized.photo || normalized.image || normalized.img || '',
@@ -152,7 +164,7 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
       prefecture: normalized.prefecture || normalized.state || normalized.region || normalized['県'] || '',
       _remote: normalized._remote || false,
       // category も genre として読み込めるように追加
-      genre: normalized.genre || normalized.category || normalized.type || normalized['ジャンル'] || '',
+      genre: normalized.genre || normalized.category || normalized.type || normalized['ジャンル'] || normalized['カテゴリー'] || '',
       reviews: Array.isArray(normalized.reviews) ? normalized.reviews : [],
     };
 
@@ -899,48 +911,60 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     shops.length = 0;
   }
 
+  function normalizeCSVHeader(header){
+    if(header == null) return '';
+    let key = String(header).trim().toLowerCase();
+    key = key.replace(/\(.*?\)/g, '');
+    key = key.replace(/例.*$/g, '');
+    key = key.replace(/[\r\n]/g, ' ');
+    key = key.replace(/[\s、・,]+/g, '');
+    key = key.replace(/[^\w\u3040-\u30ff\u4e00-\u9fff]+/g, '');
+    return key;
+  }
+
   function parseCSV(text){
     text = String(text).replace(/^\uFEFF/, '');
-    const lines = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
-    if(lines.length === 0) return [];
-    const parseRow = (row) => {
-      const values = [];
-      let current = '';
-      let inQuotes = false;
-      for(let i = 0; i < row.length; i++){
-        const ch = row[i];
-        if(inQuotes){
-          if(ch === '"'){
-            if(row[i+1] === '"'){
-              current += '"';
-              i++;
-            } else {
-              inQuotes = false;
-            }
-          } else {
-            current += ch;
-          }
+    const rows = [];
+    let inQuotes = false;
+    let current = '';
+    let row = [];
+
+    for(let i = 0; i < text.length; i++){
+      const ch = text[i];
+      if(ch === '"'){
+        if(inQuotes && text[i+1] === '"'){
+          current += '"';
+          i++;
         } else {
-          if(ch === '"'){
-            inQuotes = true;
-          } else if(ch === ','){
-            values.push(current);
-            current = '';
-          } else {
-            current += ch;
-          }
+          inQuotes = !inQuotes;
         }
+      } else if(ch === ',' && !inQuotes){
+        row.push(current);
+        current = '';
+      } else if((ch === '\n' || ch === '\r') && !inQuotes){
+        if(ch === '\r' && text[i+1] === '\n') continue;
+        row.push(current);
+        rows.push(row);
+        row = [];
+        current = '';
+      } else {
+        current += ch;
       }
-      values.push(current);
-      return values;
-    };
-    const filtered = lines.filter(line => line.trim() !== '');
+    }
+
+    if(current !== '' || row.length > 0){
+      row.push(current);
+      rows.push(row);
+    }
+
+    const filtered = rows.filter(r => r.some(cell => String(cell).trim() !== ''));
     if(filtered.length === 0) return [];
-    const headers = parseRow(filtered[0]).map(h=>h.trim().toLowerCase());
-    return filtered.slice(1).map(line=>{
-      const cols = parseRow(line);
+    const headers = filtered[0].map(normalizeCSVHeader);
+    return filtered.slice(1).map(line => {
       const item = {};
-      headers.forEach((key, idx)=>{ item[key] = cols[idx] !== undefined ? cols[idx].trim() : ''; });
+      headers.forEach((key, idx) => {
+        item[key] = line[idx] !== undefined ? String(line[idx]).trim() : '';
+      });
       return item;
     });
   }
