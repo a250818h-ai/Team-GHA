@@ -44,9 +44,11 @@
 					<button id="export-csv">CSV出力</button>
 				</div>
 				<div class="data-controls">
-					<button id="load-data" type="button">ローカルJSON読み込み</button>
-					<button id="save-results" type="button">検索結果を保存</button>
-					<input type="file" id="data-file" accept="application/json,.json,text/csv,.csv">
+					<!-- 追加: おすすめ店入力フォームへのリンクボタン -->
+					<button type="button" onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLSchVDL04YcSuQab0qJAjnY_neMVLX7Oyw7MZMEbDw7--q_I6Q/viewform', '_blank')">あなたのおすすめ店を入力</button>
+    				<button id="load-data" type="button">ローカルJSON読み込み</button>
+    				<button id="save-results" type="button">検索結果を保存</button>
+    				<input type="file" id="data-file" accept="application/json,.json,text/csv,.csv">
 				</div>
 				<ul id="shop-list"></ul>
 			</section>
