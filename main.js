@@ -36,6 +36,9 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
 
   // ユーティリティ: テキスト正規化（比較用）
   function normalizeText(s){
+    if(window.CoordinateUtils && typeof window.CoordinateUtils.normalizeText === 'function'){
+      return window.CoordinateUtils.normalizeText(s);
+    }
     if(!s) return '';
     return String(s).toLowerCase().replace(/[^\w\u3040-\u30ff\u4e00-\u9fff]+/g,'').trim();
   }
@@ -121,12 +124,18 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
 
   // ★修正箇所：normalizeItem 関数
   function isValidLatLon(lat, lon){
+    if(window.CoordinateUtils && typeof window.CoordinateUtils.isValidLatLon === 'function'){
+      return window.CoordinateUtils.isValidLatLon(lat, lon);
+    }
     return typeof lat === 'number' && typeof lon === 'number'
       && Number.isFinite(lat) && Number.isFinite(lon)
       && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
   }
 
   function parseCoordinatePair(value){
+    if(window.CoordinateUtils && typeof window.CoordinateUtils.parseCoordinatePair === 'function'){
+      return window.CoordinateUtils.parseCoordinatePair(value);
+    }
     if(value == null) return null;
     const text = String(value).trim().replace(/[()（）\uFEFF]/g, '');
     if(!text) return null;
@@ -140,6 +149,9 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
   }
 
   function normalizeItem(item){
+    if(window.CoordinateUtils && typeof window.CoordinateUtils.normalizeItem === 'function'){
+      return window.CoordinateUtils.normalizeItem(item);
+    }
     if(!item || typeof item !== 'object') return null;
     const normalized = {};
     for(const key of Object.keys(item)){
