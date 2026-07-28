@@ -196,19 +196,57 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     return false;
   }
 
-  function popupHtml(item){
+  function createPopupContent(item){
+    const wrapper = document.createElement('div');
+    wrapper.className = 'popup';
+
+    const img = document.createElement('img');
+    img.src = getPrimaryPhoto(item);
+    img.alt = item.name || '';
+    img.onerror = () => { img.src = getPhotoPlaceholder(); };
+    wrapper.appendChild(img);
+
     const rating = avgRating(item);
-    const ratingHtml = rating != null ? `<span class="rating-badge">${rating.toFixed(1)}</span>` : '';
-    const placeholder = getPhotoPlaceholder();
-    const imgSrc = getPrimaryPhoto(item);
-    return `
-      <div class="popup">
-        <img src="${imgSrc}" alt="${item.name}" onerror="this.src='${placeholder}'">
-        <div style="display:flex;align-items:center;gap:8px"><strong>${item.name}</strong>${ratingHtml}</div>
-        <div>${item.address || ''}</div>
-        <div>${item.hours || ''}</div>
-        ${item.url?`<div><a href="${item.url}" target="_blank">公式サイト</a></div>`:''}
-      </div>`;
+    const titleRow = document.createElement('div');
+    titleRow.style.display = 'flex';
+    titleRow.style.alignItems = 'center';
+    titleRow.style.gap = '8px';
+    titleRow.innerHTML = `<strong>${escapeHtml(item.name)}</strong>${rating != null ? `<span class="rating-badge">${rating.toFixed(1)}</span>` : ''}`;
+    wrapper.appendChild(titleRow);
+
+    const addressRow = document.createElement('div');
+    addressRow.textContent = item.address || '';
+    wrapper.appendChild(addressRow);
+
+    const hoursRow = document.createElement('div');
+    hoursRow.textContent = item.hours || '';
+    wrapper.appendChild(hoursRow);
+
+    if(item.url){
+      const linkRow = document.createElement('div');
+      const link = document.createElement('a');
+      link.href = item.url;
+      link.target = '_blank';
+      link.textContent = '公式サイト';
+      linkRow.appendChild(link);
+      wrapper.appendChild(linkRow);
+    }
+
+    const buttonRow = document.createElement('div');
+    buttonRow.className = 'map-popup-controls';
+    const addPhotoBtn = document.createElement('button');
+    addPhotoBtn.type = 'button';
+    addPhotoBtn.className = 'popup-add-photo-btn';
+    addPhotoBtn.textContent = '画像を追加';
+    addPhotoBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      closeAllPopups();
+      showDetail(item);
+    });
+    buttonRow.appendChild(addPhotoBtn);
+    wrapper.appendChild(buttonRow);
+
+    return wrapper;
   }
 
   function closeAllPopups(){
@@ -223,7 +261,7 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     closeAllPopups();
     const popup = new maplibregl.Popup({ offset: 12 })
       .setLngLat(lngLat)
-      .setHTML(popupHtml(item))
+      .setDOMContent(createPopupContent(item))
       .addTo(map);
     activePopups.push(popup);
     return popup;
