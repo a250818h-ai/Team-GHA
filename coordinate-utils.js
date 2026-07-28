@@ -47,11 +47,25 @@ function normalizeItem(item) {
     normalized[cleanKey] = item[key];
   }
 
+  const rawPhotos = normalized.photos || normalized['写真'] || normalized['画像'] || normalized.images || [];
+  const photoCandidates = [];
+  if (Array.isArray(rawPhotos)) {
+    rawPhotos.forEach((entry) => {
+      if (typeof entry === 'string' && entry.trim()) photoCandidates.push(entry.trim());
+    });
+  } else if (typeof rawPhotos === 'string' && rawPhotos.trim()) {
+    photoCandidates.push(rawPhotos.trim());
+  }
+
+  const primaryPhoto = normalized.photo || normalized.image || normalized.img || photoCandidates[0] || '';
+  const photos = [primaryPhoto, ...photoCandidates.filter((photo) => photo && photo !== primaryPhoto)].filter(Boolean);
+
   const result = {
     name: normalized.name || normalized.shop || normalized.title || normalized['店舗名'] || normalized['店名'] || normalized['名前'] || '',
     address: normalized.address || normalized.addr || normalized['住所'] || '',
     hours: normalized.hours || normalized.openinghours || normalized.open || normalized['営業時間'] || '',
-    photo: normalized.photo || normalized.image || normalized.img || '',
+    photo: primaryPhoto,
+    photos,
     url: normalized.url || normalized.website || '',
     city: normalized.city || '',
     prefecture: normalized.prefecture || normalized.state || normalized.region || normalized['県'] || '',

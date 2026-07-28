@@ -31,6 +31,94 @@
   let activePopups = [];
   // GeoJSON source id for clustered points
   const SHOPS_SOURCE_ID = 'shops';
+  const PHOTO_STORAGE_PREFIX = 'ramen-shop-photos';
+
+  function getPhotoStorageKey(item){
+    if(!item) return PHOTO_STORAGE_PREFIX;
+    const seed = [item.name, item.address, item.lat != null ? item.lat : '', item.lon != null ? item.lon : '']
+      .filter(Boolean)
+      .join('|');
+    return `${PHOTO_STORAGE_PREFIX}:${seed}`;
+  }
+
+  function isValidPhotoValue(value){
+    if(typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    if(!trimmed) return false;
+    return trimmed.startsWith('data:image/') || trimmed.startsWith('http://') || trimmed.startsWith('https://');
+  }
+
+  function getStoredPhotos(item){
+    if(!item) return [];
+    try{
+      const raw = localStorage.getItem(getPhotoStorageKey(item));
+      if(!raw) return [];
+      const parsed = JSON.parse(raw);
+      if(!Array.isArray(parsed)) return [];
+      return parsed.filter(isValidPhotoValue);
+    }catch(err){
+      return [];
+    }
+  }
+
+  function getItemPhotos(item){
+    const photos = [];
+    const pushUnique = (value) => {
+      if(typeof value === 'string'){
+        const trimmed = value.trim();
+        if(isValidPhotoValue(trimmed) && !photos.includes(trimmed)) photos.push(trimmed);
+      }
+    };
+    if(item){
+      pushUnique(item.photo);
+      if(Array.isArray(item.photos)) item.photos.forEach(pushUnique);
+      if(Array.isArray(item.images)) item.images.forEach(pushUnique);
+      getStoredPhotos(item).forEach(pushUnique);
+    }
+    return photos;
+  }
+
+  function setItemPhotos(item, photos){
+    if(!item) return;
+    const uniquePhotos = Array.isArray(photos)
+      ? photos.filter(isValidPhotoValue).map(p=>p.trim()).filter((p, idx, arr)=>arr.indexOf(p)===idx)
+      : [];
+    item.photos = uniquePhotos;
+    item.photo = uniquePhotos[0] || '';
+    try{
+      localStorage.setItem(getPhotoStorageKey(item), JSON.stringify(uniquePhotos));
+    }catch(err){
+      console.warn('写真の保存に失敗しました', err);
+    }
+  }
+
+  function addItemPhoto(item, value){
+    if(!item) return false;
+    const trimmed = String(value || '').trim();
+    if(!isValidPhotoValue(trimmed)) return false;
+    const photos = getItemPhotos(item);
+    if(!photos.includes(trimmed)) photos.push(trimmed);
+    setItemPhotos(item, photos);
+    return true;
+  }
+
+  function removeItemPhoto(item, value){
+    if(!item) return false;
+    const trimmed = String(value || '').trim();
+    if(!trimmed) return false;
+    const photos = getItemPhotos(item).filter(photo => photo !== trimmed);
+    setItemPhotos(item, photos);
+    return true;
+  }
+
+  function getPhotoPlaceholder(){
+    return 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="140"><rect fill="%23eeeeee" width="100%25" height="100%25"/><text x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="%23999">No Image</text></svg>';
+  }
+
+  function getPrimaryPhoto(item){
+    const photos = getItemPhotos(item);
+    return photos[0] || getPhotoPlaceholder();
+  }
   
   // Google SheetsのCSV URL
 const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUmchphCUTPwyilugQYslVA8NEuSUhtcEcrVbzZudlNmxlYLWjViuBqfLbUPMjin0F-sG_aXyhSejV/pub?gid=31963048&single=true&output=csv";
@@ -111,8 +199,8 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
   function popupHtml(item){
     const rating = avgRating(item);
     const ratingHtml = rating != null ? `<span class="rating-badge">${rating.toFixed(1)}</span>` : '';
-    const placeholder = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="140"><rect fill="%23eeeeee" width="100%25" height="100%25"/><text x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="%23999">No Image</text></svg>';
-    const imgSrc = (item.photo && String(item.photo).trim()) ? item.photo : placeholder;
+    const placeholder = getPhotoPlaceholder();
+    const imgSrc = getPrimaryPhoto(item);
     return `
       <div class="popup">
         <img src="${imgSrc}" alt="${item.name}" onerror="this.src='${placeholder}'">
@@ -344,7 +432,7 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
         const highlightedName = highlightSearchTerm(escapeHtml(m.item.name), query);
         const prefecture = m.item.prefecture ? `<span class="pref">${escapeHtml(m.item.prefecture)}</span>` : '';
         const placeholder = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="72" height="56"><rect fill="%23eeeeee" width="100%25" height="100%25"/><text x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%23999">No Image</text></svg>';
-        const thumbUrl = (m.item.photo && String(m.item.photo).trim()) ? m.item.photo : placeholder;
+        const thumbUrl = getPrimaryPhoto(m.item);
         const thumb = `<div class="thumb"><img src="${thumbUrl}" alt="${escapeHtml(m.item.name)}" onerror="this.src='${placeholder}'"></div>`;
         const distanceText = e.distance!=null ? `${e.distance.toFixed(2)} km` : '位置情報なし';
         const ratingHtml = e.rating!=null ? `<span class="stars">${'★'.repeat(Math.round(e.rating))}</span> <span style="font-size:12px;color:#666;margin-left:6px">${e.rating.toFixed(1)}</span>` : '<span style="font-size:12px;color:#999">未評価</span>';
@@ -1086,6 +1174,8 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
         address: r.item.address,
         hours: r.item.hours,
         url: r.item.url,
+        photo: r.item.photo || '',
+        photos: getItemPhotos(r.item),
         rating: avgRating(r.item),
         reviews: r.item.reviews || []
       }))
@@ -1112,18 +1202,36 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     const modal = document.createElement('div');
     modal.className = 'modal';
     const rating = avgRating(item);
-    
-    const placeholder = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="140"><rect fill="%23eeeeee" width="100%25" height="100%25"/><text x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="%23999">No Image</text></svg>';
-    const imgSrc = (item.photo && String(item.photo).trim()) ? item.photo : placeholder;
-    
+    const placeholder = getPhotoPlaceholder();
+    const initialPhotos = getItemPhotos(item);
+    const photoMarkup = initialPhotos.length > 0
+      ? initialPhotos.map((photo, index) => `
+          <div class="photo-card">
+            <img src="${photo}" alt="${escapeHtml(item.name)}" onerror="this.src='${placeholder}'">
+            <button type="button" class="photo-delete-btn" data-index="${index}">削除</button>
+          </div>
+        `).join('')
+      : '<div class="photo-empty">まだ写真はありません。</div>';
+
     modal.innerHTML = `
       <button class="btn-close">閉じる</button>
-      <h3>${item.name}</h3>
-      <img src="${imgSrc}" alt="${item.name}" style="max-width:100%;height:auto;margin-bottom:8px" onerror="this.src='${placeholder}'">
-      <div>${item.address||''}</div>
-      <div>${item.hours||''}</div>
-      ${item.url?`<div><a href="${item.url}" target="_blank">公式サイト</a></div>`:''}
-      <div style="margin-top:8px">評価: ${rating!=null?rating.toFixed(1):'未評価'}</div>
+      <h3>${escapeHtml(item.name)}</h3>
+      <div class="photo-gallery">${photoMarkup}</div>
+      <form id="photo-form" class="photo-form">
+        <label class="photo-field">
+          <span>写真URL</span>
+          <input type="url" id="photo-url" placeholder="https://example.com/photo.jpg">
+        </label>
+        <label class="photo-field">
+          <span>画像ファイル</span>
+          <input type="file" id="photo-file" accept="image/*">
+        </label>
+        <button type="submit" class="photo-submit-btn">写真を追加</button>
+      </form>
+      <div>${escapeHtml(item.address || '')}</div>
+      <div>${escapeHtml(item.hours || '')}</div>
+      ${item.url ? `<div><a href="${item.url}" target="_blank">公式サイト</a></div>` : ''}
+      <div style="margin-top:8px">評価: ${rating != null ? rating.toFixed(1) : '未評価'}</div>
       <h4>レビュー</h4>
       <ul class="review-list"></ul>
       <form id="review-form">
@@ -1143,15 +1251,75 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
       }
       item.reviews.slice().reverse().forEach(r=>{
         const li = document.createElement('li');
-        li.innerHTML = `<strong>評価 ${r.score}</strong> <div style="font-size:12px;color:#666">${new Date(r.date).toLocaleString()}</div><div>${r.comment||''}</div>`;
+        li.innerHTML = `<strong>評価 ${r.score}</strong> <div style="font-size:12px;color:#666">${new Date(r.date).toLocaleString()}</div><div>${r.comment || ''}</div>`;
         ul.appendChild(li);
       });
     }
+
+    function renderPhotoGallery(){
+      const gallery = modal.querySelector('.photo-gallery');
+      const photos = getItemPhotos(item);
+      gallery.innerHTML = photos.length > 0
+        ? photos.map((photo, index) => `
+            <div class="photo-card">
+              <img src="${photo}" alt="${escapeHtml(item.name)}" onerror="this.src='${placeholder}'">
+              <button type="button" class="photo-delete-btn" data-index="${index}">削除</button>
+            </div>
+          `).join('')
+        : '<div class="photo-empty">まだ写真はありません。</div>';
+      gallery.querySelectorAll('.photo-delete-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const index = Number(btn.dataset.index);
+          const photos = getItemPhotos(item);
+          const photoToRemove = photos[index];
+          if(photoToRemove){
+            removeItemPhoto(item, photoToRemove);
+            renderPhotoGallery();
+            refreshShopsSource();
+            populateList(getFilteredMarkers(document.getElementById('search').value || ''));
+          }
+        });
+      });
+    }
+
     renderReviews();
-    
+    renderPhotoGallery();
+
     modal.querySelector('.btn-close').addEventListener('click', ()=>{ overlay.remove(); });
     overlay.addEventListener('click', (ev)=>{ if(ev.target === overlay) overlay.remove(); });
-    
+
+    modal.querySelector('#photo-form').addEventListener('submit', async (ev)=>{
+      ev.preventDefault();
+      const urlInput = modal.querySelector('#photo-url');
+      const fileInput = modal.querySelector('#photo-file');
+      const urlValue = (urlInput.value || '').trim();
+      const file = fileInput.files && fileInput.files[0];
+
+      if(urlValue){
+        addItemPhoto(item, urlValue);
+      }
+
+      if(file){
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result;
+          if(typeof dataUrl === 'string' && addItemPhoto(item, dataUrl)){
+            renderPhotoGallery();
+            refreshShopsSource();
+            populateList(getFilteredMarkers(document.getElementById('search').value || ''));
+          }
+        };
+        reader.readAsDataURL(file);
+      } else if(urlValue){
+        renderPhotoGallery();
+        refreshShopsSource();
+        populateList(getFilteredMarkers(document.getElementById('search').value || ''));
+      }
+
+      urlInput.value = '';
+      fileInput.value = '';
+    });
+
     modal.querySelector('#review-form').addEventListener('submit', (ev)=>{
       ev.preventDefault();
       const score = parseInt(modal.querySelector('#review-score').value,10);

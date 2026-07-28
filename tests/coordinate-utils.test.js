@@ -35,3 +35,15 @@ test('normalizeItem extracts coordinates from a Google Form-like field', () => {
   assert.equal(normalized.lat, 35.862664);
   assert.equal(normalized.lon, 139.969901);
 });
+
+test('normalizeItem keeps photo URLs in a normalized photos array', () => {
+  const item = {
+    name: '写真付き店',
+    photo: 'https://example.com/cover.jpg',
+    photos: ['https://example.com/a.jpg', 'https://example.com/b.jpg'],
+  };
+
+  const normalized = normalizeItem(item);
+  assert.deepStrictEqual(normalized.photos, ['https://example.com/cover.jpg', 'https://example.com/a.jpg', 'https://example.com/b.jpg']);
+  assert.equal(normalized.photo, 'https://example.com/cover.jpg');
+});
