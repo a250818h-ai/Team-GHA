@@ -28,6 +28,7 @@
   const shops = [];
   let shopMarkers = [];
   let remoteMarkers = [];
+  let activePopups = [];
   // GeoJSON source id for clustered points
   const SHOPS_SOURCE_ID = 'shops';
   
@@ -120,6 +121,37 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
         <div>${item.hours || ''}</div>
         ${item.url?`<div><a href="${item.url}" target="_blank">公式サイト</a></div>`:''}
       </div>`;
+  }
+
+  function closeAllPopups(){
+    activePopups.forEach(popup => {
+      try { popup.remove(); } catch (err) {}
+    });
+    activePopups = [];
+  }
+
+  function openPopupForItem(item, lngLat){
+    if(!item || item.lat == null || item.lon == null) return null;
+    closeAllPopups();
+    const popup = new maplibregl.Popup({ offset: 12 })
+      .setLngLat(lngLat)
+      .setHTML(popupHtml(item))
+      .addTo(map);
+    activePopups.push(popup);
+    return popup;
+  }
+
+  function openAllVisiblePopups(){
+    const items = getFilteredMarkers(document.getElementById('search').value || '').map(entry => entry.item)
+      .filter(item => item && item.lat != null && item.lon != null);
+    closeAllPopups();
+    items.forEach(item => {
+      const popup = new maplibregl.Popup({ offset: 12 })
+        .setLngLat([Number(item.lon), Number(item.lat)])
+        .setHTML(popupHtml(item))
+        .addTo(map);
+      activePopups.push(popup);
+    });
   }
 
   // ★修正箇所：normalizeItem 関数
@@ -344,8 +376,7 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     if(!entry || !entry.item) return;
     map.flyTo({center:[entry.item.lon, entry.item.lat], zoom:15});
     try{
-      const html = popupHtml(entry.item);
-      new maplibregl.Popup({offset:12}).setLngLat([entry.item.lon, entry.item.lat]).setHTML(html).addTo(map);
+      openPopupForItem(entry.item, [Number(entry.item.lon), Number(entry.item.lat)]);
     }catch(e){}
   }
 
@@ -748,7 +779,12 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
         let item = null;
         try{ item = JSON.parse(props.item); }catch(err){ item = { name: props.name || '' }; }
         const coords = feature.geometry.coordinates.slice();
-        new maplibregl.Popup({offset:12}).setLngLat(coords).setHTML(popupHtml(item)).addTo(map);
+        if(item && item.lat != null && item.lon != null){
+          openPopupForItem(item, coords);
+        } else {
+          closeAllPopups();
+          new maplibregl.Popup({offset:12}).setLngLat(coords).setHTML(popupHtml(item)).addTo(map);
+        }
       });
 
       map.on('mouseenter', 'clusters', ()=> map.getCanvas().style.cursor = 'pointer');
@@ -818,6 +854,11 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
       }
     }
   });
+
+  const closePopupsBtn = document.getElementById('close-popups-btn');
+  const openPopupsBtn = document.getElementById('open-popups-btn');
+  if(closePopupsBtn) closePopupsBtn.addEventListener('click', closeAllPopups);
+  if(openPopupsBtn) openPopupsBtn.addEventListener('click', openAllVisiblePopups);
 
   activateMainTabs();
   const listSearch = document.getElementById('list-search');
