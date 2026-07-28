@@ -139,12 +139,12 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS
     if(value == null) return null;
     const text = String(value).trim().replace(/[()（）\uFEFF]/g, '');
     if(!text) return null;
-    const parts = text.split(/[,	;\/\s]+/).filter(Boolean);
-    if(parts.length < 2) return null;
-    const lat = Number(parts[0].trim());
-    const lon = Number(parts[1].trim());
-    if(isValidLatLon(lat, lon)) return {lat, lon};
-    if(isValidLatLon(Number(parts[1].trim()), Number(parts[0].trim()))) return {lat: Number(parts[1].trim()), lon: Number(parts[0].trim())};
+    const numbers = text.match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g);
+    if(!numbers || numbers.length < 2) return null;
+    const first = Number(numbers[0]);
+    const second = Number(numbers[1]);
+    if(isValidLatLon(first, second)) return {lat: first, lon: second};
+    if(isValidLatLon(second, first)) return {lat: second, lon: first};
     return null;
   }
 

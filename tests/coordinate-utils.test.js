@@ -16,6 +16,13 @@ test('parseCoordinatePair handles slash and parenthesis formats', () => {
   });
 });
 
+test('parseCoordinatePair handles space-separated coordinates', () => {
+  assert.deepStrictEqual(parseCoordinatePair('35.862664 139.969901'), {
+    lat: 35.862664,
+    lon: 139.969901,
+  });
+});
+
 test('normalizeItem extracts coordinates from a Google Form-like field', () => {
   const item = {
     name: 'テスト店',

@@ -11,25 +11,18 @@ function parseCoordinatePair(value) {
 
   const text = String(value)
     .trim()
-    .replace(/[()（）\uFEFF]/g, '')
-    .replace(/\s+/g, '');
+    .replace(/[()（）\uFEFF]/g, '');
 
   if (!text) return null;
 
-  const normalizedText = text
-    .replace(/[、，]/g, ',')
-    .replace(/[／/]/g, ',')
-    .replace(/;+/g, ',')
-    .replace(/\s+/g, '');
+  const numbers = text.match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g);
+  if (!numbers || numbers.length < 2) return null;
 
-  const parts = normalizedText.split(',').filter(Boolean);
-  if (parts.length < 2) return null;
+  const first = Number(numbers[0]);
+  const second = Number(numbers[1]);
 
-  const lat = Number(parts[0]);
-  const lon = Number(parts[1]);
-
-  if (isValidLatLon(lat, lon)) return { lat, lon };
-  if (isValidLatLon(Number(parts[1]), Number(parts[0]))) return { lat: Number(parts[1]), lon: Number(parts[0]) };
+  if (isValidLatLon(first, second)) return { lat: first, lon: second };
+  if (isValidLatLon(second, first)) return { lat: second, lon: first };
   return null;
 }
 
